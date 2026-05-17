@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Compiled binaries
+client
+server
+
+# Test/experiment outputs
+*.tsv
+results/
+
+# Sanitizer-augmented binaries
+client_asan
+server_asan
+
+# Editor temp files
+*.swp
+*~
