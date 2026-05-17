@@ -83,6 +83,13 @@ Do NOT use `-march=native` (dev on macOS ARM, graded on x86 Ubuntu).
 - Memory: malloc each job on receive, free after processing (or on drop)
 - Errors: log to stderr with `perror()`, exit non-zero, close all sockets
 
+### q_num / q_time Semantics (lecturer clarification)
+
+- **q_num** = total jobs in the SYSTEM (arrived but not finished), NOT just FIFO waiters
+- **The just-finished job IS included** in its own log line's q_num and q_time
+- Implementation: maintain `jobs_in_system` counter; log line first, decrement after
+- Sanity check: `server1b-1.tsv` job 0 has q_num=1 (the job itself, with no others queued)
+
 ## Experiments
 
 1. **Single client, unbounded queue**: (μ,λ)=(5,3),(3,5),(50,30) × {1000,4000} jobs; (50,35),(50,40),(50,45) × 2000 jobs
