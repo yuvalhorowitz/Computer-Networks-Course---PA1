@@ -1,0 +1,21 @@
+{
+  "course_title": "Introduction to Computer Networks",
+  "instructor": "Prof. Patt-Shamir",
+  "assignment_title": "Programming Assignment 1",
+  "submission_date": "2026-05-20",
+  "students": [
+    {
+      "name": "Yuval Horowitz",
+      "id": "206587719"
+    },
+    {
+      "name": "Avraham Mazuz",
+      "id": "318436573",
+      "email": "partner2@example.tau.ac.il"
+    },
+    {
+      "name": "Yotam Gilboa",
+      "id": "313294266"
+    }
+  ]
+}
