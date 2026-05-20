@@ -48,13 +48,61 @@ typedef struct {
 /* Forward declaration so main() can pass &worker_thread to pthread_create. */
 static void *worker_thread(void *arg);
 
-/* Get current time as a single nanosecond count from CLOCK_MONOTONIC. */
+/* now_ns: return the current time as a single 64-bit nanosecond count
+ * read from CLOCK_MONOTONIC.
+ *
+ * Input:    none.
+ * Output:   long — nanoseconds since some unspecified monotonic epoch
+ *           (typically system boot). Always non-negative; never decreases.
+ * Side effects: invokes the clock_gettime() syscall; no mutation of program state.
+ *
+ * Used by main() and worker_thread() to compute (now - t0_ns) for arrival
+ * and departure timestamps in the server log. The spec mandates
+ * CLOCK_MONOTONIC (Section 2.2): unlike CLOCK_REALTIME it never jumps
+ * backwards under NTP correction, so it is the correct choice for
+ * measuring intervals.
+ */
 static long now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
+/* main: parse args, set up the synchronized queue and UDP socket, spawn
+ * the worker thread, run the acceptor loop until num_jobs jobs have been
+ * received (drops counted), then signal shutdown and join the worker.
+ *
+ * Input (argv, all strings):
+ *   argv[1] = port     — UDP port to bind  (0..65535)
+ *   argv[2] = num_jobs — total datagrams to accept  (> 0; drops still count)
+ *   argv[3] = q_size   — FIFO capacity (drop threshold; > 0)
+ *
+ * Output:
+ *   stderr — usage line on argc mismatch; per-error description otherwise.
+ *   stdout — one TSV line per processed job, written by worker_thread.
+ *   Return value — 0 on success, non-zero on any error.
+ *
+ * Side effects:
+ *   Creates and binds a UDP socket (SO_REUSEADDR set); initializes a mutex
+ *   and condition variable; spawns one worker thread; allocates one
+ *   `struct job` per received datagram (freed by the worker after logging,
+ *   or freed here on the drop path). All resources are released before
+ *   returning.
+ *
+ * Acceptor loop (per iteration):
+ *   1. recvfrom() blocks for the next datagram.
+ *   2. arrival_ns = now_ns() - t0_ns (captured immediately).
+ *   3. Decode the 10-byte wire format into client_id, job_index, job_length_ns.
+ *   4. malloc + populate a struct job (sender IP/port stored in network order).
+ *   5. Lock; if FIFO has count >= capacity: free + drop;
+ *      else STAILQ_INSERT_TAIL, increment counters, signal worker; unlock.
+ *   6. received++ — drops counted toward num_jobs (per spec Section 2.2).
+ *
+ * Shutdown:
+ *   Lock; queue.done = 1; pthread_cond_signal; unlock.
+ *   pthread_join(worker, NULL).
+ *   close(sockfd); pthread_cond_destroy; pthread_mutex_destroy.
+ */
 int main(int argc, char *argv[]) {
     if (argc != 4) {
         fprintf(stderr, "Usage: %s port num_jobs q_size\n", argv[0]);
@@ -241,8 +289,42 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-/* Worker thread: dequeue jobs, sleep for their length, log, and free them.
- * Exits when the queue is empty AND the acceptor has set the done flag. */
+/* worker_thread: consumer side of the producer/consumer queue. Dequeues
+ * jobs one at a time, sleeps for each job's length to simulate processing,
+ * logs the per-job statistics, and frees the job memory.
+ *
+ * Input:
+ *   arg — pointer to a server_ctx (queue + t0_ns) supplied by main()
+ *         via pthread_create. The pointed-to struct must live until
+ *         pthread_join, which main() guarantees.
+ *
+ * Output:
+ *   stdout — one TSV line per processed job, formatted per spec Section 2.2:
+ *            "%08x:%04x\t%d:%d\t%ld\t%ld\t%d\t%ld\n"
+ *            (client_ip:port  client_id:idx  arrival_ns  departure_ns
+ *             q_num  q_time)
+ *   Return value — NULL (return value is unused; main() passes NULL to
+ *                  pthread_join's retval out-parameter).
+ *
+ * Side effects:
+ *   Mutates the shared queue under its mutex (decrements `count` on dequeue,
+ *   `jobs_in_system` and `total_length_in_system` after logging); calls
+ *   nanosleep to simulate processing; calls free() on each dequeued job.
+ *
+ * Termination:
+ *   Exits the loop when the queue is empty AND queue->done is set (drain-
+ *   then-exit). Returns NULL so pthread_join in main() can complete.
+ *
+ * Per-iteration order (acquires/releases the mutex multiple times):
+ *   1. Lock; while empty && !done: pthread_cond_wait.
+ *   2. If empty && done: unlock; return NULL.
+ *   3. Dequeue head; count--. (jobs_in_system stays — job still in system.)
+ *   4. Unlock. nanosleep(job_length_ns). Capture departure_ns.
+ *   5. Lock; snapshot q_num and q_time INCLUDING this job; unlock.
+ *      Print TSV log line WITHOUT holding the mutex (printf is slow).
+ *   6. Lock; jobs_in_system--; total_length_in_system -= len; unlock.
+ *   7. free(job).
+ */
 static void *worker_thread(void *arg) {
     server_ctx *ctx = (server_ctx *)arg;
     queue_t *q = ctx->queue;

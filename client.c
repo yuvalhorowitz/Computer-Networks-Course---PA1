@@ -11,13 +11,48 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-/* Sample an exponentially distributed random number with rate `lambda`.
- * Uses inverse-transform method on the result of rand(). */
+/* randexp: sample an exponentially distributed random variable, in milliseconds.
+ *
+ * Input:
+ *   lambda — the exponential rate parameter (must be > 0).
+ *
+ * Output:
+ *   Returns a non-negative double drawn from Exp(lambda); has mean 1/lambda.
+ *
+ * Side effects:
+ *   Advances the libc rand() PRNG state by exactly one call.
+ *
+ * Implementation: inverse-transform method. Sample u ~ Uniform[0,1) and
+ * return -ln(1 - u) / lambda. The (RAND_MAX + 1.0) divisor guarantees
+ * u < 1 so log(0) cannot occur.
+ */
 static double randexp(double lambda) {
     double u = rand() / ((double)RAND_MAX + 1.0);
     return -log(1.0 - u) / lambda;
 }
 
+/* main: parse command-line arguments, generate num_jobs jobs, send each
+ * as a UDP datagram to the configured server, and log a TSV line per job.
+ *
+ * Input (argv, all strings):
+ *   argv[1] = ip       — server IPv4 address in dotted-decimal notation
+ *   argv[2] = port     — server UDP port  (0..65535)
+ *   argv[3] = num_jobs — number of jobs to send  (>= 0)
+ *   argv[4] = seed     — srand() seed  (any int)
+ *   argv[5] = lambda   — Poisson arrival rate, per ms  (> 0)
+ *   argv[6] = mu       — exponential service rate, per ms  (> 0)
+ *
+ * Output:
+ *   stdout — num_jobs lines of TSV in the spec's format:
+ *            "%08x:%04x\t%d:%d\t%d\t%d\n"
+ *            (server_ip:port  client_id:job_index  floor_x_ns  floor_y_ns)
+ *   stderr — usage line on argc mismatch; per-error description otherwise.
+ *   Return value — 0 on success, non-zero on any error.
+ *
+ * Side effects:
+ *   Opens and closes a UDP socket; sleeps via nanosleep between sends;
+ *   advances the rand() PRNG state by 2 * num_jobs calls (x then y per job).
+ */
 int main(int argc, char *argv[]) {
     if (argc != 7) {
         fprintf(stderr,
@@ -120,11 +155,11 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
 
-        /* 5. Log the TSV line: ip:port  id:index  floor_x  floor_y */
-        printf("%08x:%04x\t%d:%d\t%d\t%u\n",
+        /* 5. Log the TSV line per spec Section 2.1: ip:port  id:index  floor_x  floor_y */
+        printf("%08x:%04x\t%d:%d\t%d\t%d\n",
                ip_host, port_host,
                (int)client_id, (int)i,
-               (int)sleep_ns, (unsigned int)job_length_ns);
+               (int)sleep_ns, (int)job_length_ns);
     }
 
     close(sockfd);

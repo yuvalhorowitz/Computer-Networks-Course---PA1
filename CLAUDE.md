@@ -24,7 +24,7 @@ Programming Assignment 1 for Computer Networks 512.4662 (Tel Aviv University, Pr
 
 ```makefile
 CC= gcc
-CFLAGS= -Wall -Wextra -O2 -std=c11 -Wpedantic
+CFLAGS= -Wall -Wextra -O2 -std=c11 -Wpedantic -march=native
 
 all: server client
 .PHONY: all clean
@@ -39,7 +39,7 @@ clean:
 	rm -f server client
 ```
 
-Do NOT use `-march=native` (dev on macOS ARM, graded on x86 Ubuntu).
+`-march=native` is in the spec's example Makefile (Section 5). Since the grader compiles from source on their Ubuntu machine, the flag picks up *their* CPU's instruction set — exactly as intended.
 
 ## Architecture
 

@@ -67,11 +67,13 @@ Two phases:
 | `-std=c11` | Use C11 standard | Course requirement |
 | `-pthread` | Enable POSIX threads | Server uses 2 threads |
 | `-lm` | Link math library | Client uses `log()` |
+| `-march=native` | Optimize for the build host's CPU | In the spec; grader compiles on their Ubuntu host, so it targets that CPU correctly |
 
-**Why we DON'T use `-march=native`**:
-- It says "optimize for THIS exact CPU."
-- We dev on macOS ARM but submit to Ubuntu x86 — different CPUs.
-- Without it, the binary stays portable.
+**Why we DO use `-march=native`** (and an earlier-version mistake):
+- We initially dropped this flag, worrying that "macOS ARM dev → Ubuntu x86 grading" would be an issue.
+- That reasoning was wrong: the **submission is source code, not a binary**.
+- The grader runs `make` on **their** Ubuntu machine, so `-march=native` targets that CPU correctly — exactly as the spec intends.
+- Lesson: if you're shipping source, host-specific compile flags are evaluated at the grader's compile time, not yours.
 
 ### Concept: Makefile syntax
 
@@ -97,7 +99,7 @@ named `clean` ever existed, `make clean` would do nothing.
 
 ```makefile
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c11 -Wpedantic
+CFLAGS = -Wall -Wextra -O2 -std=c11 -Wpedantic -march=native
 
 all: server client
 .PHONY: all clean
@@ -117,7 +119,7 @@ clean:
 > *Section 5: "The Makefile may look like this:" — followed by similar template.*
 > *Section 2.3: "compile with -Wall -Wextra -Wpedantic flags."*
 
-We match the spec, dropping `-march=native` for portability.
+We match the spec, including `-march=native`.
 
 ---
 

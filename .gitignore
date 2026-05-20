@@ -9,9 +9,20 @@ server
 *.tsv
 results/
 
-# Sanitizer-augmented binaries
+# Sanitizer-augmented binaries and macOS debug symbol bundles
 client_asan
 server_asan
+*.dSYM/
+
+# Generated report artifacts (regenerable from make_report.py / make_docx.py)
+README.html
+README.docx
+~$README.docx
+charts/
+summary.csv
+
+# Submission zips (build artifacts of make_submission.sh)
+PA1_*.zip
 
 # Editor temp files
 *.swp
